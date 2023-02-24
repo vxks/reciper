@@ -1,12 +1,14 @@
 package com.vxksoftware.service
 
 import com.vxksoftware.client.MealDBClient
-import com.vxksoftware.model.{Ingredient, Recipe}
-//import com.vxksoftware.persistence.RecipesRepo
+import com.vxksoftware.model.{IngredientKind, Recipe}
 import zio.*
 
 trait RecipeFinder {
-  def findRecipes(ingredients: Set[String]): Task[Set[Recipe]]
+  def findMatchingRecipes(ingredients: Set[IngredientKind]): Task[Set[Recipe]]
+  
+  // find recipes that are off by 1-2 ingredients
+  def findSuggestions(ingredients: Set[IngredientKind], margin: Short): Task[Set[Recipe]] = ???
 }
 
 object RecipeFinder {
@@ -14,11 +16,9 @@ object RecipeFinder {
     ZLayer.fromFunction(MealDBRecipeFinder.apply _)
 
   final case class MealDBRecipeFinder(mealDBClient: MealDBClient) extends RecipeFinder {
-    // find all recipes by ingredient
-    // get intersection
-    def findRecipes(ingredients: Set[String]): Task[Set[Recipe]] =
+    def findMatchingRecipes(ingredients: Set[IngredientKind]): Task[Set[Recipe]] =
       for {
-        recipes <- ZIO.scoped(mealDBClient.findByIngredients(ingredients).debug)
+        recipes <- ZIO.scoped(mealDBClient.findByIngredients(ingredients))
       } yield recipes.map(Recipe.fromMealDbDTO)
   }
 }

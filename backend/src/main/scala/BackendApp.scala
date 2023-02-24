@@ -1,5 +1,6 @@
 import com.vxksoftware.client.MealDBClient
 import com.vxksoftware.model.CommonIngredients.*
+import com.vxksoftware.model.IngredientKind
 import com.vxksoftware.service.RecipeFinder
 import zio.*
 import zio.json.*
@@ -20,10 +21,11 @@ object BackendApp extends ZIOAppDefault:
     case request @ Method.GET -> !! / "find" => {
       for {
         recipeFinder <- ZIO.service[RecipeFinder]
-        ingredients <- ZIO
+        ingredientsStr <- ZIO
                          .fromOption(request.url.queryParams.get("i"))
                          .mapError(_ => new RuntimeException("Could not extract `i` query param from find request"))
-        results <- recipeFinder.findRecipes(ingredients.toSet)
+        ingredients = ingredientsStr.toSet.flatMap(IngredientKind.fromString)
+        results <- recipeFinder.findMatchingRecipes(ingredients)
       } yield Response.json(results.toJsonPretty)
     }
   } @@ corsMW
