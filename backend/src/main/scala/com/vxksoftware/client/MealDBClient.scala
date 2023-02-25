@@ -1,11 +1,11 @@
 package com.vxksoftware.client
 
 import com.vxksoftware.model.dto.{FilterMealDTO, FilterResponseDTO, FindMealResponseDTO, MealDTO}
-import zio.*
-import zio.stream.*
-import zio.json.*
-import com.vxksoftware.model.{IngredientKind, Recipe}
+import com.vxksoftware.model.{IngredientKind, Recipe, Suggestion}
 import com.vxksoftware.utils.*
+import zio.*
+import zio.json.*
+import zio.stream.*
 
 import java.net.URL
 import java.util.concurrent.TimeUnit
@@ -13,9 +13,14 @@ import scala.io.Source
 import scala.util.Try
 
 trait MealDBClient {
-  def findByIngredient(ingredient: IngredientKind): RIO[Scope, Set[Long]]
+  def findByIngredient(ingredient: IngredientKind): RIO[Scope, Set[Long]] = ???
 
-  def findByIngredients(ingredients: Set[IngredientKind]): RIO[Scope, Set[MealDTO]]
+  def findByIngredients(availableIngredients: Set[IngredientKind]): RIO[Scope, Set[Recipe]]
+
+  def findByIngredientsMargin(
+    availableIngredients: Set[IngredientKind],
+    margin: Int
+  ): RIO[Scope, (Set[Recipe], Set[Suggestion])]
 
   def find(id: Long): RIO[Scope, Option[MealDTO]]
 }
@@ -29,10 +34,21 @@ object MealDBClient {
     private val ingredientFilterUrl: String => String = ingredient => baseUrl + s"/filter.php?i=$ingredient"
     private val mealUrl: Long => String               = id => baseUrl + s"/lookup.php?i=$id"
 
+    private lazy val fetchMealIds = (url: String) => {
+      urlSource(new URL(url)).flatMap { src =>
+        for {
+          lines <- ZIO.attemptBlockingIO(src.getLines())
+          response <-
+            ZIO.fromEither(lines.mkString.fromJson[FilterResponseDTO]).mapError(new RuntimeException(_)).orDie
+          mealIds = response.meals.map(_.map(_.idMeal.toLong).toSet)
+        } yield mealIds
+      }
+    }
+
     def find(id: Long): RIO[Scope, Option[MealDTO]] = {
       val url = mealUrl(id)
 
-      source(new URL(url)).flatMap { source =>
+      urlSource(new URL(url)).flatMap { source =>
         val lines = source.getLines()
         val response =
           ZIO.fromEither(lines.mkString.fromJson[FindMealResponseDTO]).mapError(s => new RuntimeException(s))
@@ -46,58 +62,36 @@ object MealDBClient {
       }
     }
 
-    def findByIngredient(ingredient: IngredientKind): RIO[Scope, Set[Long]] = {
-      val urls = ingredient.mealDbNames map ingredientFilterUrl
+    def findByIngredientsMargin(
+      availableIngredients: Set[IngredientKind],
+      margin: Int
+    ): RIO[Scope, (Set[Recipe], Set[Suggestion])] = {
+      val urls = availableIngredients.flatMap(_.mealDbNames) map ingredientFilterUrl
+
+      val sink =
+        ZSink.foldLeft[
+          MealDTO,
+          (Set[Recipe], Set[Suggestion])
+        ]((Set.empty[Recipe], Set.empty[Suggestion])) { case ((exactSet, suggestionSet), meal) =>
+          val recipe = Recipe.fromMealDbDTO(meal)
+          if recipe.canBeMadeWith(availableIngredients, 0) then (exactSet + recipe, suggestionSet)
+          else if recipe.canBeMadeWith(availableIngredients, margin) then
+            val suggestion = Suggestion(recipe, meal.ingredientKinds.diff(availableIngredients))
+            (exactSet, suggestionSet + suggestion)
+          else (exactSet, suggestionSet)
+        }
 
       ZStream
         .from(urls)
-        .mapZIOPar(20) { url =>
-          source(new URL(url)).flatMap { source =>
-            for {
-              lines <- ZIO.attemptBlockingIO(source.getLines())
-              response <-
-                ZIO.fromEither(lines.mkString.fromJson[FilterResponseDTO]).mapError(s => new RuntimeException(s))
-
-            } yield response.meals.map(_.idMeal.toLong).toSet
-          }
-        }
+        .mapZIOPar(20)(fetchMealIds) // meal IDS containing the ingredient
+        .collect { case Some(id) => id }
         .flattenIterables
-        .runCollect
-        .map(_.toSet)
+        .mapZIOPar(20)(find) // MEALS containing the ingredient
+        .collect { case Some(meal) => meal }
+        .run(sink)
     }
 
-    def findByIngredients(availableIngredients: Set[IngredientKind]): RIO[Scope, Set[MealDTO]] = {
-      val urls   = availableIngredients.flatMap(_.mealDbNames) map ingredientFilterUrl
-      val stream = ZStream.from(urls)
-
-      stream
-        // meal IDS containing the ingredient
-        .mapZIOPar(20) { url =>
-          source(new URL(url)).flatMap { src =>
-//            timedPrint("Get meal IDs") {
-              for {
-                lines <- ZIO.attemptBlockingIO(src.getLines())
-                response <-
-                  ZIO.fromEither(lines.mkString.fromJson[FilterResponseDTO]).mapError(new RuntimeException(_))
-                mealIds = response.meals.map(_.idMeal.toLong).toSet
-              } yield mealIds
-//            }
-          }
-        }
-        .flattenIterables
-        // MEALS containing the ingredient
-        .mapZIOPar(20) { mealId =>
-//          timedPrint("Find meal") {
-            find(mealId)
-//          }
-        }
-        // meals that can be made with available ingredients
-        .collect {
-          case Some(meal) if meal.ingredients.flatMap(IngredientKind.fromString).subsetOf(availableIngredients) =>
-            meal
-        }
-        .runCollect
-        .map(_.toSet)
-    }
+    def findByIngredients(availableIngredients: Set[IngredientKind]): RIO[Scope, Set[Recipe]] =
+      findByIngredientsMargin(availableIngredients, 0).map(_._1)
   }
 }

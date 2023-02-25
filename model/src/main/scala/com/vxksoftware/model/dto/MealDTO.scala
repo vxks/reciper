@@ -1,5 +1,6 @@
 package com.vxksoftware.model.dto
 
+import com.vxksoftware.model.IngredientKind
 import zio.json.*
 
 case class MealDTO(
@@ -40,6 +41,27 @@ case class MealDTO(
       strIngredient9,
       strIngredient10
     ).flatten.filterNot(_.isEmpty)
+
+  def ingredientKinds: Set[IngredientKind] =
+    ingredients.flatMap(IngredientKind.fromIngredient)
+    
+  def measures: Set[String] =
+    Set(
+      strMeasure1,
+      strMeasure2,
+      strMeasure3,
+      strMeasure4,
+      strMeasure5,
+      strMeasure6,
+      strMeasure7,
+      strMeasure8,
+      strMeasure9,
+      strMeasure10,
+    ).flatten.filterNot(_.isEmpty)
+
+  def ingredientMeasures: Map[String, String] =
+    ingredients.zip(measures).toMap
+
 }
 
 object MealDTO {

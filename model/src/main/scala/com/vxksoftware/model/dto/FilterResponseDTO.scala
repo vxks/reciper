@@ -4,7 +4,7 @@ import zio.Chunk
 import zio.json.*
 
 case class FilterResponseDTO(
-  meals: Chunk[FilterMealDTO]
+  meals: Option[Chunk[FilterMealDTO]]
 )
 
 object FilterResponseDTO {

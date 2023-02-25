@@ -1,29 +1,45 @@
 package com.vxksoftware.model
 
 import com.vxksoftware.model.dto.MealDTO
+import com.vxksoftware.model.IngredientKind.{*, given}
 import zio.json.*
 
-type Measure = String
+type Measure    = String
+type Ingredient = String
 
 final case class Recipe(
   id: Long,
   name: String,
-  ingredients: Map[String, Measure]
-)
+  ingredients: List[(Ingredient, Measure)]
+) derives JsonEncoder { self =>
+  def canBeMadeWith(availableIngredients: Set[IngredientKind], margin: Int): Boolean = {
+    val recipeIngredients = self.ingredients.toMap.keys.map(IngredientKind.fromIngredient).toSet
+    (recipeIngredients subsetOf availableIngredients) || {
+      val diffSize = recipeIngredients.diff(availableIngredients).size
+      val result   = diffSize <= margin
+      if result then {
+        println("GOT 'EEEEEMMMMM")
+        println(recipeIngredients.map(_.name))
+        println(availableIngredients.map(_.name))
+        println(result)
+      }
+      result
+    }
+  }
+
+}
 
 object Recipe:
-  given JsonCodec[Recipe] = DeriveJsonCodec.gen[Recipe]
 
-  def fromMealDbDTO(mealDTO: MealDTO): Recipe =
+  def fromMealDbDTO(mealDTO: MealDTO): Recipe = {
+    //classify ingredients
+    val ingredients = mealDTO.ingredientMeasures.map { case (ingredient, measure) =>
+      IngredientKind.fromIngredient(ingredient) -> measure
+    }.collect { case Some(kind) -> measure => kind -> measure }
+
     Recipe(
       id = mealDTO.idMeal.toLong,
       name = mealDTO.strMeal,
-      //TODO
-      ingredients = Map(
-        mealDTO.strIngredient1.getOrElse("") -> mealDTO.strMeasure1.getOrElse(""),
-        mealDTO.strIngredient2.getOrElse("") -> mealDTO.strMeasure2.getOrElse(""),
-        mealDTO.strIngredient3.getOrElse("") -> mealDTO.strMeasure3.getOrElse(""),
-        mealDTO.strIngredient4.getOrElse("") -> mealDTO.strMeasure4.getOrElse(""),
-        mealDTO.strIngredient5.getOrElse("") -> mealDTO.strMeasure5.getOrElse("")
-      )
+      ingredients = ingredients.toList
     )
+  }

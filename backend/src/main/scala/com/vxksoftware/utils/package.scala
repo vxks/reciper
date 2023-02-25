@@ -20,12 +20,12 @@ package object utils {
   def timedPrint[R, E, A](label: String)(zio: ZIO[R, E, A]): ZIO[R, E, A] =
     timed(label)(zio)(time => Console.printLine(s"""$label executed in: $time seconds""").orDie)
 
-  def acquire(url: => URL): ZIO[Any, IOException, Source] =
+  def urlAcquire(url: => URL): ZIO[Any, IOException, Source] =
     ZIO.attemptBlockingIO(Source.fromURL(url))
 
   def release(source: => Source): ZIO[Any, Nothing, Unit] =
     ZIO.succeedBlocking(source.close())
 
-  def source(url: => URL): ZIO[Scope, IOException, Source] =
-    ZIO.acquireRelease(acquire(url))(release(_))
+  def urlSource(url: => URL): ZIO[Scope, IOException, Source] =
+    ZIO.acquireRelease(urlAcquire(url))(release(_))
 }

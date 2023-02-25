@@ -1,14 +1,14 @@
 package com.vxksoftware.service
 
 import com.vxksoftware.client.MealDBClient
+import com.vxksoftware.model.dto.SuggestionDTO
 import com.vxksoftware.model.{IngredientKind, Recipe}
 import zio.*
 
 trait RecipeFinder {
   def findMatchingRecipes(ingredients: Set[IngredientKind]): Task[Set[Recipe]]
-  
-  // find recipes that are off by 1-2 ingredients
-  def findSuggestions(ingredients: Set[IngredientKind], margin: Short): Task[Set[Recipe]] = ???
+
+  def findSuggestions(ingredients: Set[IngredientKind], margin: Int): Task[(Set[Recipe], Set[SuggestionDTO])]
 }
 
 object RecipeFinder {
@@ -19,6 +19,14 @@ object RecipeFinder {
     def findMatchingRecipes(ingredients: Set[IngredientKind]): Task[Set[Recipe]] =
       for {
         recipes <- ZIO.scoped(mealDBClient.findByIngredients(ingredients))
-      } yield recipes.map(Recipe.fromMealDbDTO)
+      } yield recipes
+
+    def findSuggestions(ingredients: Set[IngredientKind], margin: Int): Task[(Set[Recipe], Set[SuggestionDTO])] =
+      ZIO.scoped {
+        mealDBClient.findByIngredientsMargin(ingredients, margin)
+          .map { case (exacts, suggestions) =>
+            exacts -> suggestions.map(SuggestionDTO.fromSuggestion)
+          }
+      }
   }
 }

@@ -5,8 +5,4 @@ import zio.json.*
 
 case class FindMealResponseDTO(
   meals: Chunk[MealDTO]
-)
-
-object FindMealResponseDTO {
-  given JsonDecoder[FindMealResponseDTO] = DeriveJsonDecoder.gen[FindMealResponseDTO]
-}
+) derives JsonDecoder
